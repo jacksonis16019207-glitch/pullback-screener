@@ -1,0 +1,27 @@
+{
+  "topix": {
+    "ticker": "1306.T",
+    "slope_lookback_days": 20,
+    "slope_min_pct": -1.0
+  },
+  "screen": {
+    "high_update_lookback_days": 20,
+    "min_market_cap_oku": 1000,
+    "surge_pct": 5.0,
+    "surge_lookback_days": 5,
+    "close_below_sma25_tolerance_pct": -2.0
+  },
+  "trend": {
+    "lookback_days": 125,
+    "price_above_sma25_max_violation_days": 125,
+    "sma25_above_sma75_max_violation_days": 125,
+    "min_slope_pct_per_day": 0.0
+  },
+  "pullback": {
+    "lower_pct": -2.0,
+    "upper_pct": 3.0
+  },
+  "earnings": {
+    "skip_within_business_days": 5
+  }
+}

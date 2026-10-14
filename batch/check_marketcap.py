@@ -14,13 +14,20 @@ import time
 from pathlib import Path
 
 import pandas as pd
+import requests
 import yfinance as yf
+from yfinance.exceptions import YFException
 
 LIST_PATH = Path(__file__).parent / "data" / "data_j.xlsx"
 THRESHOLD = 100_000_000_000  # 1000億円
 
 
 def load_prime_list() -> pd.DataFrame:
+    """JPXの銘柄一覧Excelから東証プライム銘柄を読み込む。
+
+    Returns:
+        東証プライム（内国株式・4文字コード）銘柄のDataFrame。
+    """
     df = pd.read_excel(LIST_PATH, dtype={"コード": str})
     prime = df[df["市場・商品区分"] == "プライム（内国株式）"].copy()
     prime = prime[prime["コード"].str.len() == 4].copy()
@@ -28,16 +35,24 @@ def load_prime_list() -> pd.DataFrame:
     return prime
 
 
-def get_market_cap(ticker: str):
-    """時価総額（円）を返す。取れなければ None。"""
+def get_market_cap(ticker: str) -> float | None:
+    """指定した銘柄の時価総額（円）を取得する。
+
+    Args:
+        ticker: ティッカーシンボル（例: "7203.T"）。
+
+    Returns:
+        時価総額（円）。取得できなかった場合は None。
+    """
     try:
         cap = yf.Ticker(ticker).fast_info["market_cap"]
         return float(cap) if cap else None
-    except Exception:  # noqa: BLE001
+    except requests.RequestException, YFException, KeyError, TypeError, ValueError:
         return None
 
 
 def main() -> None:
+    """yfinanceを使用した時価総額取得の成否および所要時間を検証する。"""
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 30
     prime = load_prime_list().head(n)
 
@@ -51,11 +66,11 @@ def main() -> None:
     elapsed = time.time() - start
     ok = [x for x in rows if x[2] is not None]
     ng = [x for x in rows if x[2] is None]
-    big = [x for x in ok if x[2] >= THRESHOLD]
+    big = [x for x in ok if x[2] is not None and x[2] >= THRESHOLD]
 
     print("===== サンプル（先頭5件）=====")
     for t, name, cap, sec in rows[:5]:
-        cap_text = f"{cap / 1e8:,.0f}億円" if cap else "取得失敗"
+        cap_text = f"{cap / 1e8:,.0f}億円" if isinstance(cap, (int, float)) else "取得失敗"
         print(f"{t} {name}: {cap_text} ({sec:.2f}秒)")
 
     print()

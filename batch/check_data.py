@@ -16,11 +16,10 @@ from pathlib import Path
 import pandas as pd
 import requests
 import yfinance as yf
+from pandas import DataFrame
+from yfinance.exceptions import YFException
 
-JPX_URL = (
-    "https://www.jpx.co.jp/markets/statistics-equities/misc/"
-    "tvdivq0000001vg2-att/data_j.xlsx"
-)
+JPX_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx"
 DATA_DIR = Path(__file__).parent / "data"
 LIST_PATH = DATA_DIR / "data_j.xlsx"
 
@@ -30,7 +29,11 @@ MIN_ROWS = 200  # 1年分としてこの行数以上あればOKとみなす
 
 
 def load_prime_list() -> pd.DataFrame:
-    """JPXの上場銘柄一覧から東証プライムを抽出する。"""
+    """JPXの上場銘柄一覧から東証プライム銘柄を抽出する。
+
+    Returns:
+        東証プライム（内国株式・4文字コード）銘柄のDataFrame。
+    """
     DATA_DIR.mkdir(exist_ok=True)
     if not LIST_PATH.exists():
         print("JPXの銘柄一覧をダウンロード中...")
@@ -45,8 +48,19 @@ def load_prime_list() -> pd.DataFrame:
     return prime
 
 
-def fetch_batch(tickers: list[str]) -> pd.DataFrame:
-    df = yf.download(
+def fetch_batch(tickers: list[str]) -> DataFrame:
+    """指定したティッカー銘柄群の1年分の日足データをyfinanceから一括取得する。
+
+    Args:
+        tickers: 取得対象のティッカーシンボル一覧。
+
+    Returns:
+        取得した日足データのDataFrame。
+
+    Raises:
+        RuntimeError: yfinanceからのデータ取得に失敗した場合。
+    """
+    downloaded = yf.download(
         tickers,
         period="1y",
         interval="1d",
@@ -55,13 +69,20 @@ def fetch_batch(tickers: list[str]) -> pd.DataFrame:
         threads=True,
         progress=False,
     )
+    if downloaded is None or not isinstance(downloaded, pd.DataFrame):
+        raise RuntimeError("Failed to fetch data from Yahoo Finance")
+
+    df: DataFrame = downloaded
+
     # 1銘柄だけのときは列が階層構造にならないので揃える
     if not isinstance(df.columns, pd.MultiIndex):
         df = pd.concat({tickers[0]: df}, axis=1)
+
     return df
 
 
 def main() -> None:
+    """東証プライム銘柄の日足データ取得を検証し、所要時間や取得成否を集計する。"""
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else None
 
     prime = load_prime_list()
@@ -78,7 +99,12 @@ def main() -> None:
         chunk = tickers[i : i + BATCH_SIZE]
         try:
             df = fetch_batch(chunk)
-        except Exception as e:  # noqa: BLE001
+        except (
+            requests.RequestException,
+            YFException,
+            RuntimeError,
+            ValueError,
+        ) as e:
             print(f"  バッチ失敗 ({i}-{i + len(chunk)}): {e}")
             ng.extend(chunk)
             continue
