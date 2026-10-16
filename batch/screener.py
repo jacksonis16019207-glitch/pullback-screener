@@ -91,6 +91,7 @@ def run_weekly() -> None:
             cands.append(c)
     print(f"価格条件を通過: {len(cands)} 銘柄。時価総額を確認します")
 
+    jpx = common.load_jpx_earnings()
     meta = prime.set_index("ticker")
     min_cap = cfg["screen"]["min_market_cap_oku"] * 1e8
     items, cap_failed = [], 0
@@ -102,7 +103,7 @@ def run_weekly() -> None:
         if cap < min_cap:
             continue
         row = meta.loc[c["ticker"]]
-        edate = common.get_earnings_date(c["ticker"])
+        edate, source = common.find_earnings(row["コード"], c["ticker"], jpx)
         c.update(
             earnings_date=edate.isoformat() if edate else None,
             code=row["コード"],
@@ -116,7 +117,12 @@ def run_weekly() -> None:
     result["items"] = items
     print(f"押し目待ちリスト: {len(items)} 銘柄 (時価総額の取得失敗 {cap_failed})")
     print(f"  うち材料ニュースの確認が必要: {sum(i['needs_news_check'] for i in items)} 銘柄")
-    print(f"  うち決算日が取れなかった: {sum(i['earnings_date'] is None for i in items)} 銘柄")
+    print(
+        "  決算日の出所: "
+        f"JPX {sum(i['earnings_source'] == 'JPX' for i in items)} / "
+        f"yfinance予定 {sum(i['earnings_source'] == 'yfinance予定' for i in items)} / "
+        f"取れなかった {sum(i['earnings_date'] is None for i in items)} 銘柄"
+    )
     save("watchlist.json", result)
 
 
@@ -146,6 +152,7 @@ def run_daily() -> None:
         return
 
     prices = common.fetch_daily([i["ticker"] for i in items])
+    jpx = common.load_jpx_earnings()
     found = []
     for it in items:
         df = prices.get(it["ticker"])
@@ -153,7 +160,7 @@ def run_daily() -> None:
             continue
         sig = logic.check_buy_signal(df, cfg)
         if sig:
-            edate = common.get_earnings_date(it["ticker"])
+            edate, source = common.find_earnings(it["code"], it["ticker"], jpx)
             soon = logic.has_earnings_within_business_days(
                 date.fromisoformat(sig["signal_date"]),
                 edate,
@@ -162,6 +169,7 @@ def run_daily() -> None:
             found.append(
                 {
                     "earnings_date": edate.isoformat() if edate else None,
+                    "earnings_source": source,
                     "earnings_soon": soon,
                     "ticker": it["ticker"],
                     "code": it["code"],

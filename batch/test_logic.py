@@ -7,7 +7,9 @@
 全部「OK」と出れば、ロジックの基本動作は正しい。
 """
 
+import tempfile
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import logic
@@ -200,6 +202,36 @@ def test_slope() -> None:
     )
 
 
+def test_jpx_earnings_file() -> None:
+    rows = [
+        ["９月に四半期末又は期末を迎えた決算発表予定会社の一覧"] + [None] * 10,
+        ["List of companies scheduled to announce earnings ..."] + [None] * 10,
+        ["2026年10月8日 現在"] + [None] * 10,
+        ["As of 2026/10/8"] + [None] * 10,
+        ["決算発表予定日\nScheduled Dates for Earnings Announcements", "コード\nCode", "会社名"]
+        + [None] * 8,
+        [pd.Timestamp("2026-10-05"), 2753, "あみやき亭"] + [None] * 8,
+        [pd.Timestamp("2026-10-15"), 6866, "日置電機"] + [None] * 8,
+        [pd.Timestamp("2026-11-05"), "471A", "新規上場の例"] + [None] * 8,
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "kessan09_test.xlsx"
+        pd.DataFrame(rows).to_excel(path, header=False, index=False)
+        got = logic.read_jpx_earnings(path)
+    check("JPX決算日: 見出しの次の行から読み込む", got.get("6866") == [date(2026, 10, 15)])
+    check("JPX決算日: 英字入りのコードも読める", got.get("471A") == [date(2026, 11, 5)])
+    check("JPX決算日: 題名の行は含めない", len(got) == 3)
+    check(
+        "次の決算日: 今日以降で最も近い日",
+        logic.next_date([date(2026, 10, 5), date(2026, 10, 15)], date(2026, 10, 14))
+        == date(2026, 10, 15),
+    )
+    check(
+        "次の決算日: 過去だけなら None",
+        logic.next_date([date(2026, 10, 5)], date(2026, 10, 14)) is None,
+    )
+
+
 def test_buy_signal() -> None:
     """押し目買いシグナル判定（押し目深度、前日高値超え、出来高増など）をテストする。"""
     pull = [296, 292, 288, 286, 286]
@@ -262,6 +294,7 @@ def test_has_earnings_within_business_days() -> None:
 
 if __name__ == "__main__":
     test_has_earnings_within_business_days()
+    test_jpx_earnings_file()
     test_high_update_sbi_definition()
     test_topix()
     test_screen_candidate()

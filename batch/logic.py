@@ -6,6 +6,7 @@
 
 import contextlib
 import json
+import unicodedata
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -356,3 +357,34 @@ def diagnose(df: pd.DataFrame, cfg: dict) -> dict:
         "  設定の期間内か": days_ago is not None and days_ago < s["high_update_lookback_days"],
         "直近の+5%以上の日": format_dates(surge.index[surge >= s["surge_pct"]]),
     }
+
+
+def read_jpx_earnings(path) -> dict[str, list[date]]:
+    """
+    JPXの決算発表予定日Excel（kessanMM_DDDD.xlsx）から、{銘柄コード: [予定日, ...]} を返す。
+    先頭の数行は題名なので、「決算発表予定日」の見出し行を探し、その次の行から読む。
+    列: 0=決算発表予定日, 1=コード
+    """
+    df = pd.read_excel(path, header=None, dtype=str)
+    first = df.iloc[:, 0].astype(str)
+    header = first[first.str.contains("決算発表予定日", na=False)]
+    if header.empty:
+        return {}
+    body = df.iloc[header.index[0] + 1 :, :2].copy()
+    body.columns = ["date", "code"]
+    body["date"] = pd.to_datetime(body["date"], errors="coerce")
+    body = body.dropna(subset=["date", "code"])
+
+    result: dict[str, list[date]] = {}
+    for d, code in zip(body["date"], body["code"], strict=False):
+        key = unicodedata.normalize("NFKC", str(code)).strip()
+        if key.endswith(".0"):  # 数値セルが 2678.0 と読まれた場合
+            key = key[:-2]
+        result.setdefault(key, []).append(d.date())
+    return result
+
+
+def next_date(dates: list[date], today: date) -> date | None:
+    """today 以降で最も近い日付。なければ None。"""
+    future = [d for d in dates if d >= today]
+    return min(future) if future else None

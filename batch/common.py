@@ -1,9 +1,12 @@
 """共通処理: 銘柄一覧の読み込み、日足の取得、時価総額の取得"""
 
+import re
 import time
 from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import urljoin
 
+import logic
 import pandas as pd
 import requests
 import yfinance as yf
@@ -13,6 +16,8 @@ JPX_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001v
 DATA_DIR = Path(__file__).parent / "data"
 LIST_PATH = DATA_DIR / "data_j.xlsx"
 COLUMNS = ["High", "Low", "Close", "Volume"]
+EARNINGS_PAGE = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
+EARNINGS_DIR = DATA_DIR / "earnings"
 
 
 def load_prime_list() -> pd.DataFrame:
@@ -87,17 +92,14 @@ def fetch_daily(
 
         for t in chunk:
             try:
-                raw_sub = df[t]
+                sub = df[t][COLUMNS].dropna(subset=["Close"])
             except KeyError:
                 continue
-            if not isinstance(raw_sub, pd.DataFrame):
+            if sub.empty:
                 continue
-            sub = raw_sub[COLUMNS].dropna(subset=["Close"])
-            if not isinstance(sub, pd.DataFrame) or sub.empty:
-                continue
-            sub_copy = sub.copy()
-            sub_copy.index = pd.DatetimeIndex(sub_copy.index).tz_localize(None)
-            result[t] = sub_copy
+            sub = sub.copy()
+            sub.index = pd.DatetimeIndex(sub.index).tz_localize(None)
+            result[t] = sub
 
         if len(tickers) > batch_size:
             done = min(i + batch_size, len(tickers))
@@ -145,3 +147,50 @@ def get_earnings_date(ticker: str) -> date | None:
         return min(future) if future else None
     except requests.RequestException, YFException, KeyError, TypeError, ValueError:
         return None
+
+
+def load_jpx_earnings() -> dict[str, list[date]]:
+    """
+    JPXが公開している決算発表予定日のExcelを取り込み、{銘柄コード: [予定日, ...]} を返す。
+    ファイル名は更新のたびに変わるので、ページのリンクから毎回探して取得する。
+    取得に失敗したときは、前回保存したファイルを使う。
+    """
+    EARNINGS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        html = requests.get(EARNINGS_PAGE, timeout=30).text
+        hrefs = re.findall(r"href=[\"']([^\"']*kessan[^\"']*\.xlsx)[\"']", html)
+        links = sorted({urljoin(EARNINGS_PAGE, h) for h in hrefs})
+        if not links:
+            raise RuntimeError("決算発表予定日のExcelのリンクが見つかりません")
+        names = set()
+        for link in links:
+            res = requests.get(link, timeout=60)
+            res.raise_for_status()
+            name = link.rsplit("/", 1)[-1]
+            (EARNINGS_DIR / name).write_bytes(res.content)
+            names.add(name)
+        for old in EARNINGS_DIR.glob("kessan*.xlsx"):  # 古い版は消す（予定変更の取り違え防止）
+            if old.name not in names:
+                old.unlink()
+    except Exception as e:  # noqa: BLE001
+        print(f"JPXの決算予定日を更新できませんでした（保存済みのファイルを使います）: {e}")
+
+    result: dict[str, list[date]] = {}
+    for path in sorted(EARNINGS_DIR.glob("kessan*.xlsx")):
+        for code, dates in logic.read_jpx_earnings(path).items():
+            result.setdefault(code, []).extend(dates)
+    print(f"JPXの決算予定日: {len(result)} 銘柄分")
+    return result
+
+
+def find_earnings(
+    code: str, ticker: str, jpx: dict[str, list[date]]
+) -> tuple[date | None, str | None]:
+    """次の決算日と出所を返す。JPX（公式）を優先し、なければyfinanceの予定日を使う。"""
+    d = logic.next_date(jpx.get(code, []), date.today())
+    if d:
+        return d, "JPX"
+    d = get_earnings_date(ticker)
+    if d:
+        return d, "yfinance予定"
+    return None, None
