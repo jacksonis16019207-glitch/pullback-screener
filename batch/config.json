@@ -1,6 +1,7 @@
 {
   "topix": {
     "ticker": "1306.T",
+    "block_watchlist": false,
     "slope_lookback_days": 20,
     "slope_min_pct": -1.0
   },

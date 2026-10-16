@@ -1,83 +1,56 @@
 """
-押し目買いスクリーナー本体。
+押し目買いスクリーナー本体（コマンドの入口）。
 
-使い方（リポジトリ直下で）:
-    uv run batch/screener.py weekly   # 金曜の引け後: 押し目待ちリストを作る
-    uv run batch/screener.py daily    # 平日の引け後: 買い候補を判定する
-    uv run batch/screener.py diagnose 2121 2004   # 指定した銘柄が条件を満たすかを説明する
-    uv run batch/screener.py explain 2121   # 1銘柄の判定を条件ごとに説明する
+使い方（batch/ フォルダで）:
+    uv run pullback-screener weekly               # 金曜の引け後: 押し目待ちリストを作る
+    uv run pullback-screener daily                # 平日の引け後: 買い候補を判定する
+    uv run pullback-screener diagnose 2121 2004   # 指定した銘柄が条件を満たすかを説明する
 
 出力（batch/output/）:
     watchlist.json        押し目待ちリスト
     buy_candidates.json   買い候補リスト
 """
-
 import json
 import sys
 from datetime import date, datetime
-from pathlib import Path
 
-import common
-import logic
-
-OUT_DIR = Path(__file__).parent / "output"
+from . import common, logic
+from .paths import OUTPUT_DIR as OUT_DIR
 
 
-def get_now_text() -> str:
-    """現在時刻をISO 8601形式の文字列（秒単位）で取得する。
-
-    Returns:
-        タイムゾーン付きのISO 8601形式現在日時文字列。
-    """
+def now_text() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def save(name: str, data: dict) -> None:
-    """データをJSONファイルとして出力ディレクトリに保存する。
-
-    Args:
-        name: 保存するファイル名（例: "watchlist.json"）。
-        data: 保存する辞書データ。
-    """
-    OUT_DIR.mkdir(exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / name
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"保存しました: {path}")
 
 
 def check_topix(cfg: dict) -> dict:
-    """手順1: TOPIX連動ETFの日足データを取得し、地合いの上昇トレンド判定を行う。
-
-    Args:
-        cfg: 設定辞書。
-
-    Returns:
-        TOPIXの判定結果および詳細情報を含む辞書。
-
-    Raises:
-        RuntimeError: TOPIX連動ETFのデータ取得に失敗した場合。
-    """
+    """手順1。TOPIX連動ETF(1306)の日足でTOPIXの地合いを判定する。"""
     ticker = cfg["topix"]["ticker"]
     data = common.fetch_daily([ticker], period="2y")
     if ticker not in data or len(data[ticker]) < 100:
         raise RuntimeError(f"TOPIX代用 ({ticker}) のデータを取得できませんでした")
-    ok, info = logic.check_topix_trend(data[ticker], cfg["topix"])
+    ok, info = logic.topix_ok(data[ticker], cfg["topix"])
     print(f"TOPIX判定 ({ticker}): {'○' if ok else '×'} {info}")
     return {"ticker": ticker, "ok": ok, **info}
 
 
-def run_weekly() -> None:
-    """週次処理（金曜引け後用）: 東証プライム全銘柄をスクリーニングし、
-    押し目待ちリストを作成・保存する。
-    """
+def weekly() -> None:
     cfg = logic.load_config()
     topix = check_topix(cfg)
-    result = {"generated_at": get_now_text(), "topix": topix, "items": []}
+    result = {"generated_at": now_text(), "topix": topix, "items": []}
 
     if not topix["ok"]:
-        print("TOPIXが×のため、今週は新規の候補を出しません")
-        save("watchlist.json", result)
-        return
+        if cfg["topix"].get("block_watchlist", False):
+            print("TOPIXが×のため、今週は新規の候補を出しません")
+            save("watchlist.json", result)
+            return
+        print("TOPIXは×ですが、押し目待ちリストは作ります（買い候補は毎日の判定で見送ります）")
 
     prime = common.load_prime_list()
     print(f"対象: 東証プライム {len(prime)} 銘柄")
@@ -106,6 +79,7 @@ def run_weekly() -> None:
         edate, source = common.find_earnings(row["コード"], c["ticker"], jpx)
         c.update(
             earnings_date=edate.isoformat() if edate else None,
+            earnings_source=source,
             code=row["コード"],
             name=row["銘柄名"],
             sector=row.get("33業種区分", ""),
@@ -126,12 +100,7 @@ def run_weekly() -> None:
     save("watchlist.json", result)
 
 
-def run_daily() -> None:
-    """日次処理（平日引け後用）: 押し目待ちリストから当日の買いシグナル成立銘柄を抽出し、保存する。
-
-    Raises:
-        SystemExit: 押し目待ちリスト（watchlist.json）が存在しない場合。
-    """
+def daily() -> None:
     cfg = logic.load_config()
     watch_path = OUT_DIR / "watchlist.json"
     if not watch_path.exists():
@@ -140,12 +109,11 @@ def run_daily() -> None:
     items = watch["items"]
 
     topix = check_topix(cfg)
-    result = {"generated_at": get_now_text(), "topix": topix, "items": []}
+    result = {"generated_at": now_text(), "topix": topix, "items": []}
+    blocked = not topix["ok"]
+    if blocked:
+        print("TOPIXが×のため、新規買いは見送りです（条件を満たした銘柄には見送りの印をつけます）")
 
-    if not topix["ok"]:
-        print("TOPIXが×のため、新規買いは見送りです")
-        save("buy_candidates.json", result)
-        return
     if not items:
         print("押し目待ちリストが空です")
         save("buy_candidates.json", result)
@@ -158,10 +126,10 @@ def run_daily() -> None:
         df = prices.get(it["ticker"])
         if df is None:
             continue
-        sig = logic.check_buy_signal(df, cfg)
+        sig = logic.buy_signal(df, cfg)
         if sig:
             edate, source = common.find_earnings(it["code"], it["ticker"], jpx)
-            soon = logic.has_earnings_within_business_days(
+            soon = logic.earnings_soon(
                 date.fromisoformat(sig["signal_date"]),
                 edate,
                 cfg["earnings"]["skip_within_business_days"],
@@ -171,6 +139,7 @@ def run_daily() -> None:
                     "earnings_date": edate.isoformat() if edate else None,
                     "earnings_source": source,
                     "earnings_soon": soon,
+                    "topix_blocked": blocked,
                     "ticker": it["ticker"],
                     "code": it["code"],
                     "name": it["name"],
@@ -185,39 +154,36 @@ def run_daily() -> None:
     for f in found:
         note = " ※決算が近いため見送り" if f["earnings_soon"] else ""
         note = " ※決算日不明" if f["earnings_soon"] is None else note
+        note += " ※TOPIXが×のため見送り" if f["topix_blocked"] else ""
         print(f"  {f['code']} {f['name']}: 買いライン {f['buy_line']:,.1f}円{note}")
     save("buy_candidates.json", result)
 
 
-def explain(code: str) -> None:
-    """指定した銘柄コードについて、スクリーニング条件の合否理由や詳細診断結果を表示する。
-
-    Args:
-        code: 銘柄コード（例: "2121"）。
-
-    Raises:
-        SystemExit: 銘柄データの取得に失敗した場合。
-    """
+def diagnose(codes: list[str]) -> None:
+    """指定した銘柄コードについて、押し目待ちの条件ごとの結果を表示する（確認用）。"""
     cfg = logic.load_config()
-    ticker = f"{code}.T"
-    data = common.fetch_daily([ticker])
-    if ticker not in data:
-        raise SystemExit(f"{ticker} のデータを取得できませんでした")
-    print(f"===== {ticker} =====")
-    for key, value in logic.diagnose(data[ticker], cfg).items():
-        print(f"{key}: {value}")
-    cap = common.get_market_cap(ticker)
-    print(f"時価総額: {round(cap / 1e8):,}億円" if cap else "時価総額: 取得失敗")
-    print(f"押し目待ちの判定: {'対象' if logic.screen_candidate(data[ticker], cfg) else '対象外'}")
+    tickers = [c + ".T" for c in codes]
+    prices = common.fetch_daily(tickers)
+    for code, ticker in zip(codes, tickers):
+        print(f"\n===== {code} =====")
+        df = prices.get(ticker)
+        if df is None:
+            print("日足を取得できませんでした")
+            continue
+        for key, value in logic.diagnose(df, cfg).items():
+            print(f"{key}: {value}")
+        cap = common.get_market_cap(ticker)
+        print(f"時価総額: {round(cap / 1e8):,}億円" if cap else "時価総額: 取得失敗")
+        print(f"押し目待ちの判定: {'対象' if logic.screen_candidate(df, cfg) else '対象外'}")
 
 
-if __name__ == "__main__":
+def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "weekly":
-        run_weekly()
+        weekly()
     elif mode == "daily":
-        run_daily()
-    elif mode == "explain" and len(sys.argv) > 2:
-        explain(sys.argv[2])
+        daily()
+    elif mode == "diagnose" and len(sys.argv) > 2:
+        diagnose(sys.argv[2:])
     else:
-        print("使い方: uv run batch/screener.py weekly | daily | explain <銘柄コード>")
+        print("使い方: uv run pullback-screener weekly | daily | diagnose 銘柄コード...")

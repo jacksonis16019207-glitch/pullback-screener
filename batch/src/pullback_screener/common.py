@@ -1,34 +1,30 @@
 """共通処理: 銘柄一覧の読み込み、日足の取得、時価総額の取得"""
-
 import re
 import time
 from datetime import date, datetime
-from pathlib import Path
 from urllib.parse import urljoin
 
-import logic
 import pandas as pd
 import requests
 import yfinance as yf
-from yfinance.exceptions import YFException
 
-JPX_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx"
-DATA_DIR = Path(__file__).parent / "data"
+from . import logic
+from .paths import DATA_DIR
+
+JPX_URL = (
+    "https://www.jpx.co.jp/markets/statistics-equities/misc/"
+    "tvdivq0000001vg2-att/data_j.xlsx"
+)
 LIST_PATH = DATA_DIR / "data_j.xlsx"
 COLUMNS = ["High", "Low", "Close", "Volume"]
-EARNINGS_PAGE = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
+EARNINGS_PAGE = (
+    "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
+)
 EARNINGS_DIR = DATA_DIR / "earnings"
 
 
 def load_prime_list() -> pd.DataFrame:
-    """東証プライム（内国株式）の4文字コードの銘柄一覧を取得する。
-
-    JPXのウェブサイトから上場銘柄一覧Excelをダウンロード・キャッシュし、
-    東証プライム（内国株式）かつ4文字コードの銘柄を抽出して返す。
-
-    Returns:
-        東証プライム銘柄の情報（コード、銘柄名、33業種区分、ticker等）を含むDataFrame。
-    """
+    """東証プライム（内国株式）の4文字コードの銘柄一覧を返す。"""
     DATA_DIR.mkdir(exist_ok=True)
     if not LIST_PATH.exists():
         print("JPXの銘柄一覧をダウンロード中...")
@@ -49,17 +45,7 @@ def fetch_daily(
     batch_size: int = 100,
     sleep_sec: float = 1.0,
 ) -> dict[str, pd.DataFrame]:
-    """指定した銘柄群の日足データ（High/Low/Close/Volume）をバッチ単位で取得する。
-
-    Args:
-        tickers: 取得対象のティッカーシンボル一覧（例: ["7203.T", "6758.T"]）。
-        period: 取得期間（デフォルト: "2y"）。
-        batch_size: 1回のリクエストで取得する銘柄数（デフォルト: 100）。
-        sleep_sec: バッチリクエスト間の待機秒数（デフォルト: 1.0）。
-
-    Returns:
-        ティッカーシンボルをキー、日足データ（High, Low, Close, Volume）のDataFrameを値とする辞書。
-    """
+    """日足（High/Low/Close/Volume）を取得し、{ticker: DataFrame} で返す。"""
     result: dict[str, pd.DataFrame] = {}
     start = time.time()
 
@@ -75,16 +61,8 @@ def fetch_daily(
                 threads=True,
                 progress=False,
             )
-        except (
-            requests.RequestException,
-            YFException,
-            ValueError,
-            RuntimeError,
-        ) as e:
+        except Exception as e:  # noqa: BLE001
             print(f"  バッチ失敗 ({i}-{i + len(chunk)}): {e}")
-            continue
-
-        if df is None or not isinstance(df, pd.DataFrame):
             continue
 
         if not isinstance(df.columns, pd.MultiIndex):
@@ -110,42 +88,26 @@ def fetch_daily(
 
 
 def get_market_cap(ticker: str) -> float | None:
-    """指定した銘柄の時価総額（円）を取得する。
-
-    Args:
-        ticker: ティッカーシンボル（例: "7203.T"）。
-
-    Returns:
-        時価総額（円）。取得できなかった場合は None。
-    """
+    """時価総額（円）。取れなければ None。"""
     try:
         cap = yf.Ticker(ticker).fast_info["market_cap"]
         return float(cap) if cap else None
-    except requests.RequestException, YFException, KeyError, TypeError, ValueError:
+    except Exception:  # noqa: BLE001
         return None
 
 
 def get_earnings_date(ticker: str) -> date | None:
-    """指定した銘柄の次の決算発表予定日を取得する。
-
-    yfinanceのカレンダー情報を取得し、今日以降で直近の決算発表予定日を返す。
-
-    Args:
-        ticker: ティッカーシンボル（例: "7203.T"）。
-
-    Returns:
-        直近の決算発表予定日（date）。取得できなかった場合は None。
-    """
+    """次の決算発表予定日（yfinanceの予定日）。取れなければ None。"""
     try:
         cal = yf.Ticker(ticker).calendar
         dates = cal.get("Earnings Date") if isinstance(cal, dict) else None
-        if dates is None or not isinstance(dates, (list, tuple, pd.Series, set)):
+        if not dates:
             return None
         today = date.today()
         normalized = [d.date() if isinstance(d, datetime) else d for d in dates]
         future = [d for d in normalized if d >= today]
         return min(future) if future else None
-    except requests.RequestException, YFException, KeyError, TypeError, ValueError:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -183,9 +145,7 @@ def load_jpx_earnings() -> dict[str, list[date]]:
     return result
 
 
-def find_earnings(
-    code: str, ticker: str, jpx: dict[str, list[date]]
-) -> tuple[date | None, str | None]:
+def find_earnings(code: str, ticker: str, jpx: dict[str, list[date]]) -> tuple[date | None, str | None]:
     """次の決算日と出所を返す。JPX（公式）を優先し、なければyfinanceの予定日を使う。"""
     d = logic.next_date(jpx.get(code, []), date.today())
     if d:
