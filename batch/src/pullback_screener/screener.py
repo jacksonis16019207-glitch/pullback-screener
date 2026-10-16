@@ -67,7 +67,7 @@ def weekly() -> None:
     jpx = common.load_jpx_earnings()
     meta = prime.set_index("ticker")
     min_cap = cfg["screen"]["min_market_cap_oku"] * 1e8
-    items, cap_failed = [], 0
+    passed, cap_failed = [], 0
     for c in cands:
         cap = common.get_market_cap(c["ticker"])
         if cap is None:
@@ -76,20 +76,26 @@ def weekly() -> None:
         if cap < min_cap:
             continue
         row = meta.loc[c["ticker"]]
-        edate, source = common.find_earnings(row["コード"], c["ticker"], jpx)
         c.update(
-            earnings_date=edate.isoformat() if edate else None,
-            earnings_source=source,
             code=row["コード"],
             name=row["銘柄名"],
             sector=row.get("33業種区分", ""),
             market_cap_oku=round(cap / 1e8),
         )
-        items.append(c)
+        passed.append(c)
 
-    items.sort(key=lambda x: x["code"])
+    # 年初来高値の更新日が新しい順に並べ、上位N件だけを対象にする
+    limit = cfg["screen"].get("max_watchlist_size", 100)
+    items = logic.sort_and_limit(passed, limit)
+    for c in items:  # 決算日は対象の銘柄だけ調べる
+        edate, source = common.find_earnings(c["code"], c["ticker"], jpx)
+        c["earnings_date"] = edate.isoformat() if edate else None
+        c["earnings_source"] = source
+
+    result["total_before_limit"] = len(passed)
     result["items"] = items
-    print(f"押し目待ちリスト: {len(items)} 銘柄 (時価総額の取得失敗 {cap_failed})")
+    print(f"時価総額の条件を通過: {len(passed)} 銘柄 (時価総額の取得失敗 {cap_failed})")
+    print(f"押し目待ちリスト: 高値更新日が新しい順に上位 {len(items)} 銘柄 (上限 {limit})")
     print(f"  うち材料ニュースの確認が必要: {sum(i['needs_news_check'] for i in items)} 銘柄")
     print(
         "  決算日の出所: "

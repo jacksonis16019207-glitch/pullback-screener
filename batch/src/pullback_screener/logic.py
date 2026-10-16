@@ -283,3 +283,13 @@ def next_date(dates: list[date], today: date) -> date | None:
     """today 以降で最も近い日付。なければ None。"""
     future = [d for d in dates if d >= today]
     return min(future) if future else None
+
+
+def sort_and_limit(items: list[dict], limit: int) -> list[dict]:
+    """年初来高値の更新日が新しい順（同じ日は時価総額が大きい順）に並べ、上位 limit 件を返す。"""
+    ordered = sorted(
+        items,
+        key=lambda x: (x["last_high_update"], x["market_cap_oku"]),
+        reverse=True,
+    )
+    return ordered[:limit]

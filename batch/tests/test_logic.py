@@ -206,3 +206,16 @@ def test_earnings_soon() -> None:
         "決算: 年末年始の休場日を営業日に数えない",
         logic.earnings_soon(date(2026, 12, 28), date(2027, 1, 6), 5) is True,
     )
+
+
+def test_sort_and_limit() -> None:
+    items = [
+        {"code": "A", "last_high_update": "2026-10-01", "market_cap_oku": 5000},
+        {"code": "B", "last_high_update": "2026-10-15", "market_cap_oku": 1200},
+        {"code": "C", "last_high_update": "2026-10-15", "market_cap_oku": 9000},
+        {"code": "D", "last_high_update": "2026-10-10", "market_cap_oku": 3000},
+    ]
+    got = logic.sort_and_limit(items, 3)
+    check("上限: 指定した件数で打ち切る", len(got) == 3)
+    check("並び順: 更新日が新しい順、同じ日は時価総額が大きい順", [x["code"] for x in got] == ["C", "B", "D"])
+    check("上限: 件数が足りないときはそのまま返す", len(logic.sort_and_limit(items, 100)) == 4)

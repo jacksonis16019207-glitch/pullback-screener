@@ -8,6 +8,7 @@
   "screen": {
     "high_update_lookback_days": 20,
     "min_market_cap_oku": 1000,
+    "max_watchlist_size": 100,
     "surge_pct": 5.0,
     "surge_lookback_days": 5,
     "close_below_sma25_tolerance_pct": -2.0
