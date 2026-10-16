@@ -293,3 +293,15 @@ def sort_and_limit(items: list[dict], limit: int) -> list[dict]:
         reverse=True,
     )
     return ordered[:limit]
+
+
+def truncate(df: pd.DataFrame, as_of: date | None) -> pd.DataFrame:
+    """as_of 以前の日足だけにする（None ならそのまま）。"""
+    if as_of is None:
+        return df
+    return df.loc[df.index <= pd.Timestamp(as_of)]
+
+
+def last_friday(today: date) -> date:
+    """今日以前で最も新しい金曜日（今日が金曜なら今日）。"""
+    return today - timedelta(days=(today.weekday() - 4) % 7)

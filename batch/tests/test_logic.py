@@ -219,3 +219,15 @@ def test_sort_and_limit() -> None:
     check("上限: 指定した件数で打ち切る", len(got) == 3)
     check("並び順: 更新日が新しい順、同じ日は時価総額が大きい順", [x["code"] for x in got] == ["C", "B", "D"])
     check("上限: 件数が足りないときはそのまま返す", len(logic.sort_and_limit(items, 100)) == 4)
+
+
+def test_truncate_and_last_friday() -> None:
+    df = make_df(UP)
+    cut = logic.truncate(df, df.index[100].date())
+    check("基準日: その日までの日足だけになる", cut.index[-1] == df.index[100] and len(cut) == 101)
+    check("基準日: None ならそのまま", len(logic.truncate(df, None)) == len(df))
+
+    check("金曜: 水曜なら直前の金曜", logic.last_friday(date(2026, 10, 14)) == date(2026, 10, 9))
+    check("金曜: 金曜ならその日", logic.last_friday(date(2026, 10, 16)) == date(2026, 10, 16))
+    check("金曜: 土曜なら前日の金曜", logic.last_friday(date(2026, 10, 17)) == date(2026, 10, 16))
+    check("金曜: 月曜なら先週の金曜", logic.last_friday(date(2026, 10, 12)) == date(2026, 10, 9))

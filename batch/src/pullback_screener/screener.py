@@ -4,6 +4,7 @@
 使い方（batch/ フォルダで）:
     uv run pullback-screener weekly               # 金曜の引け後: 押し目待ちリストを作る
     uv run pullback-screener daily                # 平日の引け後: 買い候補を判定する
+    uv run pullback-screener run                  # 自動実行用: 直近の金曜時点のリスト＋今日の買い候補＋通知
     uv run pullback-screener diagnose 2121 2004   # 指定した銘柄が条件を満たすかを説明する
 
 出力（batch/output/）:
@@ -13,9 +14,14 @@
 import json
 import sys
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
-from . import common, logic
+import pandas as pd
+
+from . import common, logic, notify
 from .paths import OUTPUT_DIR as OUT_DIR
+
+JST = ZoneInfo("Asia/Tokyo")
 
 
 def now_text() -> str:
@@ -29,42 +35,48 @@ def save(name: str, data: dict) -> None:
     print(f"保存しました: {path}")
 
 
-def check_topix(cfg: dict) -> dict:
-    """手順1。TOPIX連動ETF(1306)の日足でTOPIXの地合いを判定する。"""
+def fetch_topix(cfg: dict) -> pd.DataFrame:
+    """TOPIX連動ETF(1306)の日足を取得する。"""
     ticker = cfg["topix"]["ticker"]
     data = common.fetch_daily([ticker], period="2y")
     if ticker not in data or len(data[ticker]) < 100:
         raise RuntimeError(f"TOPIX代用 ({ticker}) のデータを取得できませんでした")
-    ok, info = logic.topix_ok(data[ticker], cfg["topix"])
-    print(f"TOPIX判定 ({ticker}): {'○' if ok else '×'} {info}")
-    return {"ticker": ticker, "ok": ok, **info}
+    return data[ticker]
 
 
-def weekly() -> None:
-    cfg = logic.load_config()
-    topix = check_topix(cfg)
+def topix_status(df: pd.DataFrame, cfg: dict, as_of: date | None = None) -> dict:
+    """手順1。as_of 時点のTOPIXの地合いを判定する。"""
+    ok, info = logic.topix_ok(logic.truncate(df, as_of), cfg["topix"])
+    print(f"TOPIX判定 ({cfg['topix']['ticker']}): {'○' if ok else '×'} {info}")
+    return {"ticker": cfg["topix"]["ticker"], "ok": ok, **info}
+
+
+def build_watchlist(
+    cfg: dict,
+    topix_df: pd.DataFrame,
+    prices: dict[str, pd.DataFrame],
+    prime: pd.DataFrame,
+    jpx: dict,
+    as_of: date | None = None,
+) -> dict:
+    """押し目待ちリストを作る（手順1〜6）。as_of を指定すると、その日までのデータで判定する。"""
+    topix = topix_status(topix_df, cfg, as_of)
     result = {"generated_at": now_text(), "topix": topix, "items": []}
 
     if not topix["ok"]:
         if cfg["topix"].get("block_watchlist", False):
             print("TOPIXが×のため、今週は新規の候補を出しません")
-            save("watchlist.json", result)
-            return
+            return result
         print("TOPIXは×ですが、押し目待ちリストは作ります（買い候補は毎日の判定で見送ります）")
-
-    prime = common.load_prime_list()
-    print(f"対象: 東証プライム {len(prime)} 銘柄")
-    prices = common.fetch_daily(prime["ticker"].tolist())
 
     cands = []
     for ticker, df in prices.items():
-        c = logic.screen_candidate(df, cfg)
+        c = logic.screen_candidate(logic.truncate(df, as_of), cfg)
         if c:
             c["ticker"] = ticker
             cands.append(c)
     print(f"価格条件を通過: {len(cands)} 銘柄。時価総額を確認します")
 
-    jpx = common.load_jpx_earnings()
     meta = prime.set_index("ticker")
     min_cap = cfg["screen"]["min_market_cap_oku"] * 1e8
     passed, cap_failed = [], 0
@@ -103,30 +115,28 @@ def weekly() -> None:
         f"yfinance予定 {sum(i['earnings_source'] == 'yfinance予定' for i in items)} / "
         f"取れなかった {sum(i['earnings_date'] is None for i in items)} 銘柄"
     )
-    save("watchlist.json", result)
+    return result
 
 
-def daily() -> None:
-    cfg = logic.load_config()
-    watch_path = OUT_DIR / "watchlist.json"
-    if not watch_path.exists():
-        raise SystemExit("watchlist.json がありません。先に weekly を実行してください")
-    watch = json.loads(watch_path.read_text(encoding="utf-8"))
-    items = watch["items"]
-
-    topix = check_topix(cfg)
+def find_buy_candidates(
+    cfg: dict,
+    watch: dict,
+    topix_df: pd.DataFrame,
+    prices: dict[str, pd.DataFrame],
+    jpx: dict,
+) -> dict:
+    """押し目待ちリストの銘柄から、今日の買い候補を判定する（手順7〜10）。"""
+    topix = topix_status(topix_df, cfg)
     result = {"generated_at": now_text(), "topix": topix, "items": []}
     blocked = not topix["ok"]
     if blocked:
         print("TOPIXが×のため、新規買いは見送りです（条件を満たした銘柄には見送りの印をつけます）")
 
+    items = watch["items"]
     if not items:
         print("押し目待ちリストが空です")
-        save("buy_candidates.json", result)
-        return
+        return result
 
-    prices = common.fetch_daily([i["ticker"] for i in items])
-    jpx = common.load_jpx_earnings()
     found = []
     for it in items:
         df = prices.get(it["ticker"])
@@ -162,7 +172,59 @@ def daily() -> None:
         note = " ※決算日不明" if f["earnings_soon"] is None else note
         note += " ※TOPIXが×のため見送り" if f["topix_blocked"] else ""
         print(f"  {f['code']} {f['name']}: 買いライン {f['buy_line']:,.1f}円{note}")
-    save("buy_candidates.json", result)
+    return result
+
+
+def weekly() -> None:
+    cfg = logic.load_config()
+    topix_df = fetch_topix(cfg)
+    prime = common.load_prime_list()
+    print(f"対象: 東証プライム {len(prime)} 銘柄")
+    prices = common.fetch_daily(prime["ticker"].tolist())
+    jpx = common.load_jpx_earnings()
+    save("watchlist.json", build_watchlist(cfg, topix_df, prices, prime, jpx))
+
+
+def daily() -> None:
+    cfg = logic.load_config()
+    watch_path = OUT_DIR / "watchlist.json"
+    if not watch_path.exists():
+        raise SystemExit("watchlist.json がありません。先に weekly を実行してください")
+    watch = json.loads(watch_path.read_text(encoding="utf-8"))
+    topix_df = fetch_topix(cfg)
+    prices = common.fetch_daily([i["ticker"] for i in watch["items"]]) if watch["items"] else {}
+    jpx = common.load_jpx_earnings()
+    save("buy_candidates.json", find_buy_candidates(cfg, watch, topix_df, prices, jpx))
+
+
+def run() -> None:
+    """
+    自動実行用。状態を持ち越さずに、毎回すべてを作り直す。
+      押し目待ちリスト: 直近の金曜（その日が休場なら直前の営業日）までのデータで作る
+      買い候補: 今日までのデータで、そのリストの銘柄を判定する
+    """
+    cfg = logic.load_config()
+    today = datetime.now(JST).date()
+    as_of = logic.last_friday(today)
+    print(f"今日: {today} / 押し目待ちリストの基準日: {as_of}")
+
+    topix_df = fetch_topix(cfg)
+    prime = common.load_prime_list()
+    prices = common.fetch_daily(prime["ticker"].tolist())
+    jpx = common.load_jpx_earnings()
+
+    watch = build_watchlist(cfg, topix_df, prices, prime, jpx, as_of=as_of)
+    buy = find_buy_candidates(cfg, watch, topix_df, prices, jpx)
+    save("watchlist.json", watch)
+    save("buy_candidates.json", buy)
+
+    trading_today = buy["topix"].get("as_of") == today.isoformat()
+    if not trading_today:
+        print("今日は休場日か、今日の日足がまだないため、通知は送りません")
+    for title, message in notify.build_notifications(
+        watch, buy, is_friday=today.weekday() == 4, trading_today=trading_today
+    ):
+        notify.send(title, message)
 
 
 def diagnose(codes: list[str]) -> None:
@@ -189,7 +251,9 @@ def main() -> None:
         weekly()
     elif mode == "daily":
         daily()
+    elif mode == "run":
+        run()
     elif mode == "diagnose" and len(sys.argv) > 2:
         diagnose(sys.argv[2:])
     else:
-        print("使い方: uv run pullback-screener weekly | daily | diagnose 銘柄コード...")
+        print("使い方: uv run pullback-screener weekly | daily | run | diagnose 銘柄コード...")
