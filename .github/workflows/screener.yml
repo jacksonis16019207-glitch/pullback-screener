@@ -1,0 +1,63 @@
+name: screener
+
+on:
+  schedule:
+    # 平日 16:30（日本時間）。cronはUTCなので 07:30。混雑で数分〜十数分遅れることがある
+    - cron: "30 7 * * 1-5"
+  workflow_dispatch: # Actionsの画面から手動で実行できる
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/screener.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: 判定を実行する（押し目待ち・買い候補・通知）
+        working-directory: batch
+        run: |
+          uv sync --locked
+          uv run pullback-screener run
+        env:
+          # pushで起動したとき（画面を直しただけのとき）は、通知を送らない
+          NTFY_TOPIC: ${{ github.event_name != 'push' && secrets.NTFY_TOPIC || '' }}
+          APP_URL: ${{ vars.APP_URL }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 画面をビルドする
+        working-directory: web
+        run: |
+          npm ci
+          mkdir -p public/data
+          cp ../batch/output/*.json public/data/
+          npm run build -- --base=/${{ github.event.repository.name }}/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
