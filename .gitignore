@@ -13,3 +13,4 @@ web/dist/
 # 取得したデータ・判定結果（ダウンロードや再実行で作り直せるもの）
 batch/data/
 batch/output/
+web/public/data/*.json
