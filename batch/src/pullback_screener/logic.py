@@ -5,7 +5,7 @@
 """
 import json
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -305,3 +305,78 @@ def truncate(df: pd.DataFrame, as_of: date | None) -> pd.DataFrame:
 def last_friday(today: date) -> date:
     """今日以前で最も新しい金曜日（今日が金曜なら今日）。"""
     return today - timedelta(days=(today.weekday() - 4) % 7)
+
+
+def is_business_day(d: date) -> bool:
+    """取引所の営業日か（土日・祝日・年末年始を除く）。"""
+    return d.weekday() < 5 and d not in _holidays(d, d)
+
+
+def should_wait_for_data(now: datetime) -> bool:
+    """営業日の引け後（15:30以降）なら True。この時間帯は、今日の日足が入っているはずの時間。"""
+    return is_business_day(now.date()) and (now.hour, now.minute) >= (15, 30)
+
+
+CHART_DAYS = 125  # 日足6か月（約125営業日）
+
+
+def _round_list(values, ndigits: int) -> list[float | None]:
+    return [None if pd.isna(v) else round(float(v), ndigits) for v in values]
+
+
+def chart_data(df: pd.DataFrame, days: int = CHART_DAYS) -> dict:
+    """銘柄詳細画面のチャート用。直近 days 営業日の終値・25日線・75日線・出来高と、高値更新日を返す。"""
+    d = add_sma(df)
+    flags = high_update_flags(d)
+    tail = d.iloc[-days:]
+    tail_flags = flags.loc[tail.index]
+    return {
+        "dates": [x.strftime("%Y-%m-%d") for x in tail.index],
+        "close": _round_list(tail["Close"], 1),
+        "sma25": _round_list(tail["sma25"], 1),
+        "sma75": _round_list(tail["sma75"], 1),
+        "volume": [0 if pd.isna(v) else int(v) for v in tail["Volume"]],
+        "high_update_dates": [x.strftime("%Y-%m-%d") for x in tail_flags[tail_flags].index],
+    }
+
+
+def news_check_stats(df: pd.DataFrame, cfg: dict) -> dict:
+    """
+    材料ニュースが単発か継続かを判断するための数字（銘柄詳細画面に表示する）。
+      surge_count_20d: 直近20営業日で前日比+5%以上だった日数
+      surge_day: 直近5営業日の中で、最も新しい+5%以上の日（なければ None）
+      pre_surge_20d_pct: その急騰の前日までの20営業日の上昇率（％）
+      volume_ratio_after_surge: 急騰日以降の平均出来高が、急騰前20日の平均の何倍か
+    """
+    s = cfg["screen"]
+    close, volume = df["Close"], df["Volume"]
+    pct = close.pct_change() * 100
+
+    last20 = pct.iloc[-20:]
+    six = None
+    if len(close) > CHART_DAYS:
+        six = round(float((close.iloc[-1] / close.iloc[-CHART_DAYS] - 1) * 100), 1)
+    out: dict = {
+        "six_month_return_pct": six,
+        "surge_count_20d": int((last20 >= s["surge_pct"]).sum()),
+        "surge_day": None,
+        "days_since_surge": None,
+        "pre_surge_20d_pct": None,
+        "volume_ratio_after_surge": None,
+    }
+
+    recent = pct.iloc[-s["surge_lookback_days"] :]
+    hits = recent[recent >= s["surge_pct"]]
+    if len(hits) == 0:
+        return out
+    day = hits.index[-1]
+    i = int(close.index.get_loc(day))
+    out["surge_day"] = day.strftime("%Y-%m-%d")
+    out["days_since_surge"] = len(close) - 1 - i
+    if i >= 21:
+        out["pre_surge_20d_pct"] = round(float((close.iloc[i - 1] / close.iloc[i - 21] - 1) * 100), 1)
+        before = float(volume.iloc[i - 20 : i].mean())
+        after = float(volume.iloc[i:].mean())
+        if before > 0:
+            out["volume_ratio_after_surge"] = round(after / before, 2)
+    return out

@@ -13,6 +13,7 @@
 """
 import json
 import sys
+import time
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -28,10 +29,14 @@ def now_text() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def save(name: str, data: dict) -> None:
+def save(name: str, data: dict, compact: bool = False) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / name
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if compact:  # チャートのように数字が大きく並ぶファイルは、改行なしで小さくする
+        text = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    else:
+        text = json.dumps(data, ensure_ascii=False, indent=2)
+    path.write_text(text, encoding="utf-8")
     print(f"保存しました: {path}")
 
 
@@ -137,13 +142,17 @@ def find_buy_candidates(
         print("押し目待ちリストが空です")
         return result
 
+    # 全銘柄の中で最も新しい日付。この日にシグナルが出たものだけを買い候補にする
+    # （データが古いまま止まっている銘柄の、過去のシグナルを混ぜないため）
+    latest = max((df.index[-1] for df in prices.values()), default=None)
+
     found = []
     for it in items:
         df = prices.get(it["ticker"])
         if df is None:
             continue
         sig = logic.buy_signal(df, cfg)
-        if sig:
+        if sig and latest is not None and sig["signal_date"] == latest.strftime("%Y-%m-%d"):
             edate, source = common.find_earnings(it["code"], it["ticker"], jpx)
             soon = logic.earnings_soon(
                 date.fromisoformat(sig["signal_date"]),
@@ -197,6 +206,41 @@ def daily() -> None:
     save("buy_candidates.json", find_buy_candidates(cfg, watch, topix_df, prices, jpx))
 
 
+def wait_for_today_data(cfg: dict, now: datetime) -> None:
+    """
+    営業日の引け後なのに、TOPIXの日足に今日の分がまだ入っていないときは、入るまで待つ。
+    （データの反映が遅れる日があるため。待っても入らなければ、そのまま先に進む）
+    """
+    if not logic.should_wait_for_data(now):
+        return
+    ticker = cfg["topix"]["ticker"]
+    limit = cfg.get("run", {}).get("wait_for_data_minutes", 30)
+    interval = cfg.get("run", {}).get("wait_interval_minutes", 5)
+    waited = 0
+    while True:
+        data = common.fetch_daily([ticker], period="1mo")
+        last = data[ticker].index[-1].date() if ticker in data else None
+        if last == now.date():
+            return
+        if waited >= limit:
+            print(f"{waited}分待ちましたが、TOPIXの日足に今日の分が入りませんでした")
+            return
+        print(f"TOPIXの日足に今日の分がまだありません。{interval}分待ちます（{waited}/{limit}分）")
+        time.sleep(interval * 60)
+        waited += interval
+
+
+def build_charts(items: list[dict], prices: dict[str, pd.DataFrame], cfg: dict) -> dict:
+    """押し目待ちリストの各銘柄について、銘柄詳細画面用のチャートと判定補助の数字を作る。"""
+    stocks = {}
+    for it in items:
+        df = prices.get(it["ticker"])
+        if df is None:
+            continue
+        stocks[it["code"]] = {**logic.chart_data(df), "stats": logic.news_check_stats(df, cfg)}
+    return {"generated_at": now_text(), "stocks": stocks}
+
+
 def run() -> None:
     """
     自動実行用。状態を持ち越さずに、毎回すべてを作り直す。
@@ -204,10 +248,12 @@ def run() -> None:
       買い候補: 今日までのデータで、そのリストの銘柄を判定する
     """
     cfg = logic.load_config()
-    today = datetime.now(JST).date()
+    now = datetime.now(JST)
+    today = now.date()
     as_of = logic.last_friday(today)
     print(f"今日: {today} / 押し目待ちリストの基準日: {as_of}")
 
+    wait_for_today_data(cfg, now)
     topix_df = fetch_topix(cfg)
     prime = common.load_prime_list()
     prices = common.fetch_daily(prime["ticker"].tolist())
@@ -217,10 +263,17 @@ def run() -> None:
     buy = find_buy_candidates(cfg, watch, topix_df, prices, jpx)
     save("watchlist.json", watch)
     save("buy_candidates.json", buy)
+    save("charts.json", build_charts(watch["items"], prices, cfg), compact=True)
 
     trading_today = buy["topix"].get("as_of") == today.isoformat()
     if not trading_today:
         print("今日は休場日か、今日の日足がまだないため、通知は送りません")
+        if logic.should_wait_for_data(now):  # 営業日の引け後なのに日足がない: 気づけるよう知らせる
+            notify.send(
+                "日足が取得できませんでした",
+                "営業日の引け後ですが、今日の日足が反映されていないため、通知を見送りました。"
+                "あとで画面を確認してください。",
+            )
     for title, message in notify.build_notifications(
         watch, buy, is_friday=today.weekday() == 4, trading_today=trading_today
     ):

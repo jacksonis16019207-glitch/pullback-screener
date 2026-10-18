@@ -6,8 +6,9 @@
 
 作り物の株価データで、期待どおりに判定されるかを確かめる。
 """
+import json
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -231,3 +232,38 @@ def test_truncate_and_last_friday() -> None:
     check("金曜: 金曜ならその日", logic.last_friday(date(2026, 10, 16)) == date(2026, 10, 16))
     check("金曜: 土曜なら前日の金曜", logic.last_friday(date(2026, 10, 17)) == date(2026, 10, 16))
     check("金曜: 月曜なら先週の金曜", logic.last_friday(date(2026, 10, 12)) == date(2026, 10, 9))
+
+
+def test_should_wait_for_data() -> None:
+    check("待つ: 営業日の引け後は待つ", logic.should_wait_for_data(datetime(2026, 10, 14, 16, 30)) is True)
+    check("待つ: 15:30ちょうどから待つ", logic.should_wait_for_data(datetime(2026, 10, 14, 15, 30)) is True)
+    check("待つ: 引け前は待たない", logic.should_wait_for_data(datetime(2026, 10, 14, 10, 0)) is False)
+    check("待つ: 土曜は待たない", logic.should_wait_for_data(datetime(2026, 10, 17, 16, 30)) is False)
+    check("待つ: 年末の休場日は待たない", logic.should_wait_for_data(datetime(2026, 12, 31, 16, 30)) is False)
+    check("営業日: 平日は営業日", logic.is_business_day(date(2026, 10, 14)) is True)
+    check("営業日: 日曜は営業日でない", logic.is_business_day(date(2026, 10, 18)) is False)
+
+
+def test_chart_data() -> None:
+    cd = logic.chart_data(make_df(UP))
+    n = len(cd["dates"])
+    check("チャート: 直近125営業日", n == 125)
+    check("チャート: 各系列の長さがそろう", all(len(cd[k]) == n for k in ("close", "sma25", "sma75", "volume")))
+    check("チャート: 最終日が高値更新日", cd["high_update_dates"][-1] == cd["dates"][-1])
+    check("チャート: JSONに書き出せる（NaNなし）", len(json.dumps(cd, allow_nan=False)) > 0)
+
+    short = logic.chart_data(make_df(UP[:90]))  # 75日線がまだない日はnullになる
+    check("チャート: 75日線が未計算の日は null", short["sma75"][0] is None)
+    check("チャート: nullがあってもJSONに書き出せる", len(json.dumps(short, allow_nan=False)) > 0)
+
+
+def test_news_check_stats() -> None:
+    calm = logic.news_check_stats(make_df(UP), CFG)
+    check("判定補助: 急騰がなければ急騰日は None", calm["surge_day"] is None and calm["surge_count_20d"] == 0)
+
+    surge = UP[:-1] + [UP[-2] * 1.08]
+    vols = [1000] * 199 + [3000]
+    st = logic.news_check_stats(make_df(surge, vols), CFG)
+    check("判定補助: 直近の+5%以上の日を拾う", st["surge_count_20d"] == 1 and st["days_since_surge"] == 0)
+    check("判定補助: 急騰前20日は上昇している", st["pre_surge_20d_pct"] is not None and st["pre_surge_20d_pct"] > 0)
+    check("判定補助: 急騰日の出来高は急騰前の3倍", st["volume_ratio_after_surge"] == 3.0)

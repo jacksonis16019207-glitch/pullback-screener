@@ -25,5 +25,9 @@
   },
   "earnings": {
     "skip_within_business_days": 5
+  },
+  "run": {
+    "wait_for_data_minutes": 30,
+    "wait_interval_minutes": 5
   }
 }
