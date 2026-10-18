@@ -1,7 +1,13 @@
 import { Link, useParams } from 'react-router-dom'
+import { NewsBadge } from '../components/NewsBadge'
+import { NewsGuide } from '../components/NewsGuide'
+import { NewsSelector } from '../components/NewsSelector'
 import { PriceChart } from '../components/PriceChart'
+import { SearchLinks } from '../components/SearchLinks'
 import { useCharts } from '../hooks/useCharts'
+import type { NewsStore } from '../hooks/useNewsSelections'
 import { formatPercent, formatYen } from '../lib/format'
+import { latestSurgeDate } from '../lib/news'
 import { calcAffordability } from '../lib/shares'
 import type { BuyCandidates, StockChart, Watchlist } from '../types/screener'
 
@@ -9,6 +15,7 @@ type Props = {
   watchlist: Watchlist
   buy: BuyCandidates
   funds: number
+  newsStore: NewsStore
 }
 
 function surgeText(chart: StockChart): string {
@@ -17,7 +24,7 @@ function surgeText(chart: StockChart): string {
   return `${surge_day}（${days_since_surge ?? 0}営業日前）`
 }
 
-export function StockDetailPage({ watchlist, buy, funds }: Props) {
+export function StockDetailPage({ watchlist, buy, funds, newsStore }: Props) {
   const { code } = useParams<{ code: string }>()
   const charts = useCharts()
 
@@ -37,6 +44,8 @@ export function StockDetailPage({ watchlist, buy, funds }: Props) {
   const a = calcAffordability(funds, price)
   const chart: StockChart | undefined =
     charts.status === 'ready' ? charts.charts.stocks[watchItem.code] : undefined
+  const surgeDate = latestSurgeDate(watchItem)
+  const news = newsStore.get(watchItem.code, surgeDate)
   const earningsLabel = watchItem.earnings_date ?? '不明'
   const earningsSource = watchItem.earnings_source ? `（${watchItem.earnings_source}）` : ''
 
@@ -53,7 +62,7 @@ export function StockDetailPage({ watchlist, buy, funds }: Props) {
 
       <ul className="badges">
         {buyItem && <li className="badge badge--ok">買い候補</li>}
-        {watchItem.needs_news_check && <li className="badge badge--warn">材料ニュースの確認が必要</li>}
+        <NewsBadge needsCheck={watchItem.needs_news_check} selection={news} />
         {watchItem.earnings_date === null && <li className="badge badge--info">決算日不明</li>}
       </ul>
 
@@ -120,6 +129,31 @@ export function StockDetailPage({ watchlist, buy, funds }: Props) {
                 : `${chart.stats.volume_ratio_after_surge.toFixed(2)}倍`}
             </dd>
           </dl>
+        </section>
+      )}
+
+      <section className="section">
+        <h2 className="section__title">材料ニュースを調べる</h2>
+        <SearchLinks
+          code={watchItem.code}
+          name={watchItem.name}
+          sector={watchItem.sector}
+          surgeDate={surgeDate}
+        />
+      </section>
+
+      {watchItem.needs_news_check && surgeDate !== null && (
+        <section className="section">
+          <h2 className="section__title">材料ニュースの選択</h2>
+          <p className="news__hint">
+            急騰日: {surgeDate}。調べた結果を選んでください。「単発」を選ぶと、一覧から外れます。
+          </p>
+          <NewsSelector
+            selection={news}
+            onChange={(s) => newsStore.set(watchItem.code, surgeDate, s)}
+            onClear={() => newsStore.clear(watchItem.code, surgeDate)}
+          />
+          <NewsGuide />
         </section>
       )}
     </>

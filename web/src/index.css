@@ -125,3 +125,26 @@ a { color: inherit; }
 .legend--sma75::before { background: #8b5cf6; }
 .legend--high::before { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 .legend--buyline::before { background: var(--accent); }
+
+/* ---- 材料ニュースの選択 ---- */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.chip {
+  padding: 7px 12px;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.chip--on { color: #fff; background: var(--accent); border-color: var(--accent); }
+.chip--link { color: var(--accent); }
+.news__label, .search__title { margin: 8px 0 0; font-size: 0.8rem; color: var(--muted); }
+.news__hint { margin: 4px 0; font-size: 0.85rem; }
+.link-button { padding: 6px 0; font-size: 0.85rem; color: var(--accent); background: none; border: none; cursor: pointer; }
+.guide { margin: 8px 0; padding: 8px 12px; font-size: 0.85rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.guide summary { cursor: pointer; }
+.guide__list { margin: 8px 0; padding-left: 1.2em; }
+.guide__note { margin: 6px 0; color: var(--warn); }
+.notice { margin: 8px 0; padding: 8px 12px; font-size: 0.85rem; color: var(--warn); background: var(--warn-bg); border-radius: 8px; }

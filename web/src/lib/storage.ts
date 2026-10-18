@@ -17,3 +17,21 @@ export function saveNumber(key: string, value: number): void {
     // 保存できなくても、画面の動作は続ける
   }
 }
+
+// JSON の読み書き。壊れた値や使えない環境では null を返す（中身の形の確認は呼び出し側で行う）。
+export function loadJson(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw === null ? null : JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export function saveJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // 保存できなくても、画面の動作は続ける
+  }
+}

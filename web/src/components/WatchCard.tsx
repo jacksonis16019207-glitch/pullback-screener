@@ -1,14 +1,18 @@
 import { Link } from 'react-router-dom'
 import { formatPercent, formatYen } from '../lib/format'
+import type { NewsSelection } from '../lib/news'
 import { calcAffordability } from '../lib/shares'
 import type { WatchItem } from '../types/screener'
+import { NewsBadge } from './NewsBadge'
 
 type Props = {
   item: WatchItem
   funds: number
+  news: NewsSelection | null
+  dimmed?: boolean
 }
 
-export function WatchCard({ item, funds }: Props) {
+export function WatchCard({ item, funds, news, dimmed = false }: Props) {
   const a = calcAffordability(funds, item.close)
   const distance = (item.close / item.sma25 - 1) * 100
 
@@ -20,7 +24,7 @@ export function WatchCard({ item, funds }: Props) {
   }
 
   return (
-    <article className="card">
+    <article className={`card${dimmed ? ' card--skip' : ''}`}>
       <header className="card__head">
         <h3 className="card__title">
           <Link to={`/stock/${item.code}`} className="card__link">
@@ -35,7 +39,7 @@ export function WatchCard({ item, funds }: Props) {
       </p>
 
       <ul className="badges">
-        {item.needs_news_check && <li className="badge badge--warn">材料ニュースの確認が必要</li>}
+        <NewsBadge needsCheck={item.needs_news_check} selection={news} />
         {item.earnings_date === null && <li className="badge badge--info">決算日不明</li>}
       </ul>
 

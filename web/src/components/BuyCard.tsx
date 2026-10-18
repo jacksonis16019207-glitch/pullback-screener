@@ -1,14 +1,18 @@
 import { Link } from 'react-router-dom'
 import { formatYen } from '../lib/format'
+import type { NewsSelection } from '../lib/news'
 import { calcAffordability } from '../lib/shares'
 import type { BuyItem } from '../types/screener'
+import { NewsBadge } from './NewsBadge'
 
 type Props = {
   item: BuyItem
   funds: number
+  needsNewsCheck: boolean
+  news: NewsSelection | null
 }
 
-export function BuyCard({ item, funds }: Props) {
+export function BuyCard({ item, funds, needsNewsCheck, news }: Props) {
   const a = calcAffordability(funds, item.buy_line)
   const skip = item.topix_blocked || item.earnings_soon === true
 
@@ -38,6 +42,7 @@ export function BuyCard({ item, funds }: Props) {
         {item.topix_blocked && <li className="badge badge--warn">TOPIXが×のため見送り</li>}
         {item.earnings_soon === true && <li className="badge badge--warn">決算が近いため見送り</li>}
         {item.earnings_soon === null && <li className="badge badge--info">決算日不明</li>}
+        <NewsBadge needsCheck={needsNewsCheck} selection={news} />
       </ul>
 
       <dl className="meta">
