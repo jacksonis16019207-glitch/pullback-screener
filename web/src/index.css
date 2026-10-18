@@ -97,3 +97,31 @@ body {
 .meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 0.85rem; }
 .meta dt { color: var(--muted); }
 .meta dd { margin: 0; }
+
+/* ---- 銘柄詳細画面 ---- */
+a { color: inherit; }
+.tab { text-align: center; text-decoration: none; }
+.card__link { color: inherit; text-decoration: none; }
+.card__link:hover { text-decoration: underline; }
+.back { display: inline-block; margin-bottom: 8px; color: var(--accent); text-decoration: none; }
+.section { margin: 14px 0; }
+.section__title { margin: 0 0 6px; font-size: 0.95rem; }
+.badge--ok { color: var(--ok); background: var(--info-bg); }
+
+.chart { margin: 0; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart path { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.chart__close { stroke: var(--text); stroke-width: 1.4; }
+.chart__sma25 { stroke: #f59e0b; stroke-width: 1.1; }
+.chart__sma75 { stroke: #8b5cf6; stroke-width: 1.1; }
+.chart__buyline { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart__high { fill: var(--ok); }
+.chart__vol { fill: var(--muted); opacity: 0.45; }
+.chart__label { fill: var(--muted); font-size: 9px; }
+.chart__legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 0.75rem; color: var(--muted); }
+.legend::before { content: ''; display: inline-block; width: 12px; height: 3px; margin-right: 4px; vertical-align: middle; border-radius: 2px; }
+.legend--close::before { background: var(--text); }
+.legend--sma25::before { background: #f59e0b; }
+.legend--sma75::before { background: #8b5cf6; }
+.legend--high::before { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.legend--buyline::before { background: var(--accent); }

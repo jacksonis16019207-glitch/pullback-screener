@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { formatPercent, formatYen } from '../lib/format'
 import { calcAffordability } from '../lib/shares'
 import type { WatchItem } from '../types/screener'
@@ -22,7 +23,9 @@ export function WatchCard({ item, funds }: Props) {
     <article className="card">
       <header className="card__head">
         <h3 className="card__title">
-          {item.code} {item.name}
+          <Link to={`/stock/${item.code}`} className="card__link">
+            {item.code} {item.name}
+          </Link>
         </h3>
         <span className="card__sector">{item.sector}</span>
       </header>

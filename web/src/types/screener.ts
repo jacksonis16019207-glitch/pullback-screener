@@ -54,3 +54,28 @@ export type BuyCandidates = {
   topix: Topix
   items: BuyItem[]
 }
+
+// charts.json（銘柄詳細画面のチャートと判定補助の数字）
+export type ChartStats = {
+  six_month_return_pct: number | null
+  surge_count_20d: number
+  surge_day: string | null
+  days_since_surge: number | null
+  pre_surge_20d_pct: number | null
+  volume_ratio_after_surge: number | null
+}
+
+export type StockChart = {
+  dates: string[]
+  close: (number | null)[]
+  sma25: (number | null)[]
+  sma75: (number | null)[]
+  volume: number[]
+  high_update_dates: string[]
+  stats: ChartStats
+}
+
+export type ChartsFile = {
+  generated_at: string
+  stocks: Record<string, StockChart>
+}

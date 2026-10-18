@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { formatYen } from '../lib/format'
 import { calcAffordability } from '../lib/shares'
 import type { BuyItem } from '../types/screener'
@@ -22,7 +23,9 @@ export function BuyCard({ item, funds }: Props) {
     <article className={`card${skip ? ' card--skip' : ''}`}>
       <header className="card__head">
         <h3 className="card__title">
-          {item.code} {item.name}
+          <Link to={`/stock/${item.code}`} className="card__link">
+            {item.code} {item.name}
+          </Link>
         </h3>
         <span className="card__sector">{item.sector}</span>
       </header>
