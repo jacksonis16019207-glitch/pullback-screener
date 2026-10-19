@@ -1,11 +1,15 @@
 import { Link, useParams } from 'react-router-dom'
+import { EarningsInput } from '../components/EarningsInput'
 import { NewsBadge } from '../components/NewsBadge'
 import { NewsGuide } from '../components/NewsGuide'
 import { NewsSelector } from '../components/NewsSelector'
 import { PriceChart } from '../components/PriceChart'
 import { SearchLinks } from '../components/SearchLinks'
 import { useCharts } from '../hooks/useCharts'
+import type { EarningsStore } from '../hooks/useManualEarnings'
 import type { NewsStore } from '../hooks/useNewsSelections'
+import { todayIso } from '../lib/businessDays'
+import { earningsText, resolveEarnings } from '../lib/earnings'
 import { formatPercent, formatYen } from '../lib/format'
 import { latestSurgeDate } from '../lib/news'
 import { calcAffordability } from '../lib/shares'
@@ -16,6 +20,9 @@ type Props = {
   buy: BuyCandidates
   funds: number
   newsStore: NewsStore
+  earningsStore: EarningsStore
+  nonTrading: ReadonlySet<string>
+  within: number
 }
 
 function surgeText(chart: StockChart): string {
@@ -24,7 +31,15 @@ function surgeText(chart: StockChart): string {
   return `${surge_day}（${days_since_surge ?? 0}営業日前）`
 }
 
-export function StockDetailPage({ watchlist, buy, funds, newsStore }: Props) {
+export function StockDetailPage({
+  watchlist,
+  buy,
+  funds,
+  newsStore,
+  earningsStore,
+  nonTrading,
+  within,
+}: Props) {
   const { code } = useParams<{ code: string }>()
   const charts = useCharts()
 
@@ -46,8 +61,15 @@ export function StockDetailPage({ watchlist, buy, funds, newsStore }: Props) {
     charts.status === 'ready' ? charts.charts.stocks[watchItem.code] : undefined
   const surgeDate = latestSurgeDate(watchItem)
   const news = newsStore.get(watchItem.code, surgeDate)
-  const earningsLabel = watchItem.earnings_date ?? '不明'
-  const earningsSource = watchItem.earnings_source ? `（${watchItem.earnings_source}）` : ''
+  const earnings = resolveEarnings(
+    buyItem
+      ? { date: buyItem.earnings_date, source: buyItem.earnings_source, soon: buyItem.earnings_soon }
+      : { date: watchItem.earnings_date, source: watchItem.earnings_source, soon: null },
+    earningsStore.get(watchItem.code),
+    buyItem?.signal_date ?? todayIso(),
+    within,
+    nonTrading,
+  )
 
   return (
     <>
@@ -63,7 +85,8 @@ export function StockDetailPage({ watchlist, buy, funds, newsStore }: Props) {
       <ul className="badges">
         {buyItem && <li className="badge badge--ok">買い候補</li>}
         <NewsBadge needsCheck={watchItem.needs_news_check} selection={news} />
-        {watchItem.earnings_date === null && <li className="badge badge--info">決算日不明</li>}
+        {earnings.soon === true && <li className="badge badge--warn">決算が近いため見送り</li>}
+        {earnings.date === null && <li className="badge badge--info">決算日不明</li>}
       </ul>
 
       <section className="section">
@@ -87,14 +110,25 @@ export function StockDetailPage({ watchlist, buy, funds, newsStore }: Props) {
           <dt>高値更新日</dt>
           <dd>{watchItem.last_high_update}</dd>
           <dt>決算日</dt>
-          <dd>
-            {earningsLabel}
-            {earningsSource}
-          </dd>
+          <dd>{earningsText(earnings)}</dd>
           <dt>時価総額</dt>
           <dd>{watchItem.market_cap_oku.toLocaleString('ja-JP')}億円</dd>
         </dl>
       </section>
+
+      {watchItem.earnings_date === null && (
+        <section className="section">
+          <h2 className="section__title">決算発表予定日の入力</h2>
+          <p className="news__hint">
+            自動で取れなかった銘柄です。SBI株アプリなどで調べた日付を入力してください。
+          </p>
+          <EarningsInput
+            value={earningsStore.get(watchItem.code)?.date ?? null}
+            onSave={(date) => earningsStore.set(watchItem.code, date)}
+            onClear={() => earningsStore.clear(watchItem.code)}
+          />
+        </section>
+      )}
 
       <section className="section">
         <h2 className="section__title">日足6か月</h2>

@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import { earningsText } from '../lib/earnings'
+import type { EarningsView } from '../lib/earnings'
 import { formatYen } from '../lib/format'
 import type { NewsSelection } from '../lib/news'
 import { calcAffordability } from '../lib/shares'
@@ -10,11 +12,12 @@ type Props = {
   funds: number
   needsNewsCheck: boolean
   news: NewsSelection | null
+  earnings: EarningsView
 }
 
-export function BuyCard({ item, funds, needsNewsCheck, news }: Props) {
+export function BuyCard({ item, funds, needsNewsCheck, news, earnings }: Props) {
   const a = calcAffordability(funds, item.buy_line)
-  const skip = item.topix_blocked || item.earnings_soon === true
+  const skip = item.topix_blocked || earnings.soon === true
 
   let affordText = '資金を入力してください'
   if (funds > 0) {
@@ -40,8 +43,8 @@ export function BuyCard({ item, funds, needsNewsCheck, news }: Props) {
 
       <ul className="badges">
         {item.topix_blocked && <li className="badge badge--warn">TOPIXが×のため見送り</li>}
-        {item.earnings_soon === true && <li className="badge badge--warn">決算が近いため見送り</li>}
-        {item.earnings_soon === null && <li className="badge badge--info">決算日不明</li>}
+        {earnings.soon === true && <li className="badge badge--warn">決算が近いため見送り</li>}
+        {earnings.date === null && <li className="badge badge--info">決算日不明</li>}
         <NewsBadge needsCheck={needsNewsCheck} selection={news} />
       </ul>
 
@@ -51,7 +54,7 @@ export function BuyCard({ item, funds, needsNewsCheck, news }: Props) {
         <dt>1単元</dt>
         <dd>{formatYen(a.lotCost)}</dd>
         <dt>決算日</dt>
-        <dd>{item.earnings_date ?? '不明'}</dd>
+        <dd>{earningsText(earnings)}</dd>
         <dt>時価総額</dt>
         <dd>{item.market_cap_oku.toLocaleString('ja-JP')}億円</dd>
       </dl>

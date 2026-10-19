@@ -267,3 +267,10 @@ def test_news_check_stats() -> None:
     check("判定補助: 直近の+5%以上の日を拾う", st["surge_count_20d"] == 1 and st["days_since_surge"] == 0)
     check("判定補助: 急騰前20日は上昇している", st["pre_surge_20d_pct"] is not None and st["pre_surge_20d_pct"] > 0)
     check("判定補助: 急騰日の出来高は急騰前の3倍", st["volume_ratio_after_surge"] == 3.0)
+
+
+def test_non_trading_weekdays() -> None:
+    got = logic.non_trading_weekdays(date(2026, 12, 25), 20)
+    check("休場日: 12/31と1/1が入る", "2026-12-31" in got and "2027-01-01" in got)
+    check("休場日: 土日は入れない（平日の休場だけ）", all(date.fromisoformat(x).weekday() < 5 for x in got))
+    check("休場日: 通常の営業日は入らない", "2026-12-28" not in got)

@@ -380,3 +380,19 @@ def news_check_stats(df: pd.DataFrame, cfg: dict) -> dict:
         if before > 0:
             out["volume_ratio_after_surge"] = round(after / before, 2)
     return out
+
+
+def non_trading_weekdays(start: date, days: int = 200) -> list[str]:
+    """
+    start から days 日先までの、平日なのに取引所が休みの日（祝日・年末年始）を返す。
+    画面で「決算まで何営業日か」を数えるときに使う。
+    """
+    end = start + timedelta(days=days)
+    holidays = set(_holidays(start, end))
+    result = []
+    d = start
+    while d <= end:
+        if d.weekday() < 5 and d in holidays:
+            result.append(d.isoformat())
+        d += timedelta(days=1)
+    return result

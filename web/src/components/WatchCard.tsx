@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import { earningsText } from '../lib/earnings'
+import type { EarningsView } from '../lib/earnings'
 import { formatPercent, formatYen } from '../lib/format'
 import type { NewsSelection } from '../lib/news'
 import { calcAffordability } from '../lib/shares'
@@ -9,10 +11,11 @@ type Props = {
   item: WatchItem
   funds: number
   news: NewsSelection | null
+  earnings: EarningsView
   dimmed?: boolean
 }
 
-export function WatchCard({ item, funds, news, dimmed = false }: Props) {
+export function WatchCard({ item, funds, news, earnings, dimmed = false }: Props) {
   const a = calcAffordability(funds, item.close)
   const distance = (item.close / item.sma25 - 1) * 100
 
@@ -40,7 +43,7 @@ export function WatchCard({ item, funds, news, dimmed = false }: Props) {
 
       <ul className="badges">
         <NewsBadge needsCheck={item.needs_news_check} selection={news} />
-        {item.earnings_date === null && <li className="badge badge--info">決算日不明</li>}
+        {earnings.date === null && <li className="badge badge--info">決算日不明</li>}
       </ul>
 
       <dl className="meta">
@@ -49,7 +52,7 @@ export function WatchCard({ item, funds, news, dimmed = false }: Props) {
         <dt>買える数</dt>
         <dd>{affordText}</dd>
         <dt>決算日</dt>
-        <dd>{item.earnings_date ?? '不明'}</dd>
+        <dd>{earningsText(earnings)}</dd>
         <dt>時価総額</dt>
         <dd>{item.market_cap_oku.toLocaleString('ja-JP')}億円</dd>
       </dl>

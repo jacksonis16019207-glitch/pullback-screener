@@ -46,6 +46,8 @@ export type Watchlist = {
   generated_at: string
   topix: Topix
   total_before_limit?: number
+  non_trading_days?: string[] // 平日なのに取引所が休みの日（営業日を数えるのに使う）
+  earnings_skip_days?: number // 決算が何営業日以内なら見送りか
   items: WatchItem[]
 }
 

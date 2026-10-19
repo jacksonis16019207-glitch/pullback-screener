@@ -14,7 +14,7 @@
 import json
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -261,6 +261,9 @@ def run() -> None:
 
     watch = build_watchlist(cfg, topix_df, prices, prime, jpx, as_of=as_of)
     buy = find_buy_candidates(cfg, watch, topix_df, prices, jpx)
+    # 画面で、手入力した決算日から「5営業日以内か」を数えるための情報
+    watch["non_trading_days"] = logic.non_trading_weekdays(today - timedelta(days=14))
+    watch["earnings_skip_days"] = cfg["earnings"]["skip_within_business_days"]
     save("watchlist.json", watch)
     save("buy_candidates.json", buy)
     save("charts.json", build_charts(watch["items"], prices, cfg), compact=True)

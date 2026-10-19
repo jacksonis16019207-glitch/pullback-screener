@@ -1,4 +1,5 @@
 // 材料ニュースの選択（単発／継続）に関する型と、判断の目安。
+import { isRecord } from './guards'
 
 export type NewsType =
   | 'earnings'
@@ -101,10 +102,6 @@ export function selectionKey(code: string, surgeDate: string): string {
 // 直近5営業日の中で、最も新しい急騰日（なければ null）
 export function latestSurgeDate(item: { surge_dates: string[] }): string | null {
   return item.surge_dates.length > 0 ? item.surge_dates[item.surge_dates.length - 1] : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 // localStorage から読んだ値を、安全な形に直す。形が違うもの・古いものは捨てる。
