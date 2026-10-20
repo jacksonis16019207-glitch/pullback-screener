@@ -1,0 +1,25 @@
+name: notify-test
+
+# Actionsの画面から手動で実行する。通知の設定（NTFY_TOPIC / APP_URL）が正しいかを、すぐ確かめるためのもの。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: テスト通知を送る
+        working-directory: batch
+        run: |
+          uv sync --locked
+          uv run pullback-screener notify-test
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          APP_URL: ${{ vars.APP_URL }}

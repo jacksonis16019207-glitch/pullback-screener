@@ -47,12 +47,12 @@ def build_notifications(
     return notifications
 
 
-def send(title: str, message: str) -> None:
-    """ntfyに送る。NTFY_TOPIC（環境変数）が未設定なら何もしない。"""
+def send(title: str, message: str) -> bool:
+    """ntfyに送る。送れたら True。NTFY_TOPIC（環境変数）が未設定なら何もせず False。"""
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
         print("NTFY_TOPIC が未設定のため、通知は送りません")
-        return
+        return False
 
     import requests
 
@@ -64,5 +64,7 @@ def send(title: str, message: str) -> None:
         res = requests.post("https://ntfy.sh/", json=body, timeout=30)
         res.raise_for_status()
         print(f"通知を送りました: {title}")
+        return True
     except Exception as e:  # noqa: BLE001
         print(f"通知を送れませんでした: {e}")
+        return False

@@ -6,6 +6,7 @@
     uv run pullback-screener daily                # 平日の引け後: 買い候補を判定する
     uv run pullback-screener run                  # 自動実行用: 直近の金曜時点のリスト＋今日の買い候補＋通知
     uv run pullback-screener diagnose 2121 2004   # 指定した銘柄が条件を満たすかを説明する
+    uv run pullback-screener notify-test          # 通知のテスト送信（届かなければ終了コード1）
 
 出力（batch/output/）:
     watchlist.json        押し目待ちリスト
@@ -311,5 +312,11 @@ def main() -> None:
         run()
     elif mode == "diagnose" and len(sys.argv) > 2:
         diagnose(sys.argv[2:])
+    elif mode == "notify-test":
+        sent = notify.send(
+            "通知のテスト",
+            "押し目スクリーナーからのテスト通知です。この通知が届けば、設定は正しく動いています。",
+        )
+        raise SystemExit(0 if sent else 1)
     else:
-        print("使い方: uv run pullback-screener weekly | daily | run | diagnose 銘柄コード...")
+        print("使い方: uv run pullback-screener weekly | daily | run | diagnose 銘柄コード... | notify-test")
