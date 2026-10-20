@@ -1,0 +1,15 @@
+{
+  "name": "押し目スクリーナー",
+  "short_name": "押し目",
+  "description": "SBI証券アプリの押し目買い手法で、買うべき銘柄と買いラインを知るためのツール",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7f9",
+  "theme_color": "#f6f7f9",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
